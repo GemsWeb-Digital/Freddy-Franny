@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Rect } from '../types';
+import { Rect, PlatformStateSubmission } from '../types';
 import { Button } from './Button';
 
 const CANVAS_WIDTH = 560;
@@ -21,9 +21,16 @@ export const ChapterMaze: React.FC = () => {
   const [playerPos, setPlayerPos] = useState({ x: 40, y: 40 });
   const [status, setStatus] = useState<'playing' | 'won' | 'lost'>('playing');
 
+  // --- Integrity Data Collection ---
+  const startTime = useRef<number>(Date.now());
+  const pathHistory = useRef<[number, number][]>([[40, 40]]);
+
   const resetGame = () => {
     setPlayerPos({ x: 40, y: 40 });
     setStatus('playing');
+    // Reset integrity data
+    startTime.current = Date.now();
+    pathHistory.current = [[40, 40]];
   };
 
   const drawGame = (ctx: CanvasRenderingContext2D) => {
@@ -56,6 +63,15 @@ export const ChapterMaze: React.FC = () => {
     ctx.fillStyle = "#073b4c";
     ctx.fill();
     ctx.closePath();
+
+    // Optional: Visualize path for debug (Integrity check visualization)
+    // ctx.beginPath();
+    // ctx.strokeStyle = "rgba(7, 59, 76, 0.2)";
+    // pathHistory.current.forEach((point, i) => {
+    //   if (i === 0) ctx.moveTo(point[0], point[1]);
+    //   else ctx.lineTo(point[0], point[1]);
+    // });
+    // ctx.stroke();
   };
 
   useEffect(() => {
@@ -66,6 +82,33 @@ export const ChapterMaze: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerPos]);
+
+  const generateSubmissionPayload = () => {
+    // Calculate path length (simple euclidean sum)
+    let length = 0;
+    for(let i = 1; i < pathHistory.current.length; i++) {
+      const p1 = pathHistory.current[i-1];
+      const p2 = pathHistory.current[i];
+      const dist = Math.sqrt(Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2));
+      length += dist;
+    }
+
+    const payload: PlatformStateSubmission = {
+      user_uuid: "mock-user-uuid-12345", // In real app, from auth context
+      session_id: "mock-session-id-67890",
+      challenge_metadata: {
+        challenge_id: 4,
+        challenge_type: 'MAZE',
+        client_elapsed_time_ms: Date.now() - startTime.current
+      },
+      submission_data: {
+        path_array: pathHistory.current,
+        path_length: Math.round(length)
+      }
+    };
+
+    console.log("🔒 [INTEGRITY] Generated Maze Submission Payload:", JSON.stringify(payload, null, 2));
+  };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (status !== 'playing') return;
@@ -101,14 +144,19 @@ export const ChapterMaze: React.FC = () => {
       return;
     }
 
+    // Update State
+    setPlayerPos({ x: clickX, y: clickY });
+    
+    // --- Integrity: Record Move ---
+    pathHistory.current.push([Math.round(clickX), Math.round(clickY)]);
+
     // Check win condition
     const hitGoal = clickX >= END_ZONE.x && clickX <= END_ZONE.x + END_ZONE.w &&
                     clickY >= END_ZONE.y && clickY <= END_ZONE.y + END_ZONE.h;
 
-    setPlayerPos({ x: clickX, y: clickY });
-
     if (hitGoal) {
       setStatus('won');
+      generateSubmissionPayload();
     }
   };
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MATCHING_ITEMS } from '../constants';
-import { TileItem } from '../types';
+import { TileItem, PlatformStateSubmission, StrokePoint } from '../types';
 import { Button } from './Button';
 import { jsPDF } from 'jspdf';
 
@@ -44,7 +44,6 @@ export const ChapterFunDay: React.FC = () => {
     setDraggedIndex(index);
     // Required for Firefox
     e.dataTransfer.effectAllowed = "move";
-    // Create a drag image slightly offset if needed, default is usually fine
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
@@ -66,23 +65,44 @@ export const ChapterFunDay: React.FC = () => {
     setDraggedIndex(null);
   };
 
-  // --- Drawing Logic ---
+  // --- Drawing Logic with Integrity Tracking ---
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [showTooltip, setShowTooltip] = useState(true);
+
+  // Integrity Data Refs
+  const startTime = useRef<number>(0);
+  const strokesHistory = useRef<StrokePoint[][]>([]);
+  const currentStroke = useRef<StrokePoint[]>([]);
+
+  // Initialize start time on first interaction or mount
+  useEffect(() => {
+    startTime.current = Date.now();
+  }, []);
 
   const startDraw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.setPointerCapture(e.pointerId);
     setIsDrawing(true);
+    
     const ctx = canvas.getContext('2d');
     if (ctx) {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
       ctx.beginPath();
-      ctx.moveTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+      ctx.moveTo(x, y);
+
+      // Start new stroke recording
+      currentStroke.current = [{ 
+        x, 
+        y, 
+        time_offset_ms: Date.now() - startTime.current 
+      }];
     }
   };
 
@@ -95,12 +115,21 @@ export const ChapterFunDay: React.FC = () => {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
       
-      ctx.lineTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+      ctx.lineTo(x, y);
       ctx.strokeStyle = "#073b4c";
       ctx.lineWidth = 4;
       ctx.lineCap = "round";
       ctx.stroke();
+
+      // Record stroke point
+      currentStroke.current.push({ 
+        x, 
+        y, 
+        time_offset_ms: Date.now() - startTime.current 
+      });
     }
   };
 
@@ -108,6 +137,12 @@ export const ChapterFunDay: React.FC = () => {
     const canvas = canvasRef.current;
     if (canvas) canvas.releasePointerCapture(e.pointerId);
     setIsDrawing(false);
+
+    // Save completed stroke to history
+    if (currentStroke.current.length > 0) {
+      strokesHistory.current.push([...currentStroke.current]);
+      currentStroke.current = []; // Reset for next stroke
+    }
   };
 
   const clearCanvas = () => {
@@ -116,12 +151,36 @@ export const ChapterFunDay: React.FC = () => {
       const ctx = canvas.getContext('2d');
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
     }
+    // Clear integrity history too
+    strokesHistory.current = [];
+    startTime.current = Date.now();
+  };
+
+  const generateSubmissionPayload = () => {
+    const payload: PlatformStateSubmission = {
+      user_uuid: "mock-user-uuid-12345",
+      session_id: "mock-session-id-67890",
+      challenge_metadata: {
+        challenge_id: 5,
+        challenge_type: 'DRAWING',
+        client_elapsed_time_ms: Date.now() - startTime.current
+      },
+      submission_data: {
+        stroke_data: strokesHistory.current,
+        total_stroke_count: strokesHistory.current.length,
+        total_drawing_time_ms: Date.now() - startTime.current // Simplified for this example
+      }
+    };
+    console.log("🔒 [INTEGRITY] Generated Drawing Submission Payload:", JSON.stringify(payload, null, 2));
   };
 
   const saveCanvas = () => {
     const canvas = canvasRef.current;
     if (canvas) {
       try {
+        // Generate Payload
+        generateSubmissionPayload();
+
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF({
           orientation: 'landscape',
@@ -150,7 +209,6 @@ export const ChapterFunDay: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-lg mx-auto p-4 bg-navy/5 rounded-xl">
           {tiles.map((tile, idx) => {
             // Determine if this tile is part of a matched pair (0-1, 2-3, etc)
-            // A pair is matched if the current index's partner (adjacent index) has the same ID
             const partnerIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
             const isMatched = tiles[partnerIdx]?.id === tile.id;
 
