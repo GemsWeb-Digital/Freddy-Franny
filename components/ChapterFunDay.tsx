@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { MATCHING_ITEMS } from '../constants';
 import { TileItem } from '../types';
 import { Button } from './Button';
+import { jsPDF } from 'jspdf';
 
 // Helper to shuffle
 const shuffle = (array: TileItem[]) => [...array].sort(() => Math.random() - 0.5);
@@ -68,6 +69,7 @@ export const ChapterFunDay: React.FC = () => {
   // --- Drawing Logic ---
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(true);
 
   const startDraw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -119,10 +121,20 @@ export const ChapterFunDay: React.FC = () => {
   const saveCanvas = () => {
     const canvas = canvasRef.current;
     if (canvas) {
-      const link = document.createElement('a');
-      link.download = 'my_safe_exit_map.png';
-      link.href = canvas.toDataURL();
-      link.click();
+      try {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({
+          orientation: 'landscape',
+          unit: 'px',
+          format: [600, 400]
+        });
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, 600, 400);
+        pdf.save('my_safe_exit_map.pdf');
+      } catch (error) {
+        console.error("Error creating PDF:", error);
+        alert("Sorry, could not save map as PDF.");
+      }
     }
   };
 
@@ -159,4 +171,62 @@ export const ChapterFunDay: React.FC = () => {
                   }
                 `}
               >
-                <span className
+                <span className="text-4xl mb-1 select-none">{tile.emoji}</span>
+                <span className={`text-xs font-bold text-center select-none leading-tight ${isMatched ? 'text-green-800' : 'text-navy'}`}>
+                  {tile.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {isComplete && (
+          <div className="mt-4 text-center animate-bounce-in">
+            <p className="text-2xl font-bold text-greenSuccess">🌟 All Paired Up! Great Job! 🌟</p>
+          </div>
+        )}
+      </div>
+
+      {/* Drawing Section */}
+      <div>
+        <h3 className="text-xl font-bold mb-2">Draw Your Exit Plan</h3>
+        <p className="mb-4 text-gray-600">Draw a map of your room and show the safe way out.</p>
+        
+        {showTooltip && (
+          <div className="bg-blue-50 border-l-4 border-navy p-4 mb-4 rounded-r shadow-sm flex justify-between items-start animate-fade-in">
+             <div className="flex-1">
+                <p className="font-bold text-navy text-sm flex items-center gap-2">
+                   <span>✏️</span> How to Draw:
+                </p>
+                <p className="text-sm text-gray-700 mt-1">
+                  Touch (or click) and hold to draw. Draw your room's walls and a big arrow showing how you would leave safely!
+                </p>
+             </div>
+             <button 
+               onClick={() => setShowTooltip(false)} 
+               className="ml-2 text-gray-400 hover:text-redAccent font-bold px-2"
+               aria-label="Close tip"
+             >
+               ✕
+             </button>
+          </div>
+        )}
+
+        <div className="border-2 border-dashed border-navy rounded-lg overflow-hidden mb-4 bg-white touch-none">
+           <canvas 
+             ref={canvasRef}
+             width={600}
+             height={400}
+             className="w-full h-auto bg-[url('https://picsum.photos/id/11/600/400?blur=10')] bg-cover bg-opacity-10 cursor-crosshair"
+             onPointerDown={startDraw}
+             onPointerMove={draw}
+             onPointerUp={endDraw}
+           />
+        </div>
+        <div className="flex gap-4 justify-center">
+          <Button onClick={clearCanvas} variant="secondary">Clear</Button>
+          <Button onClick={saveCanvas} variant="primary">Save Map</Button>
+        </div>
+      </div>
+    </div>
+  );
+}

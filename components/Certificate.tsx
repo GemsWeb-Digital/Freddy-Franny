@@ -1,15 +1,19 @@
 import React, { useRef, useState } from 'react';
 import { Button } from './Button';
+import { jsPDF } from 'jspdf';
 
 export const Certificate: React.FC = () => {
   const [name, setName] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const generateCertificate = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    setIsGenerating(true);
 
     // Fill Background
     ctx.fillStyle = "#fff8f0";
@@ -60,11 +64,23 @@ export const Certificate: React.FC = () => {
     ctx.fillText("🚒", 150, 700);
     ctx.fillText("🔥", 1050, 700);
 
-    // Download
-    const link = document.createElement('a');
-    link.download = 'fire_safety_certificate.png';
-    link.href = canvas.toDataURL();
-    link.click();
+    // Generate PDF
+    try {
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [1200, 850]
+      });
+
+      pdf.addImage(imgData, 'PNG', 0, 0, 1200, 850);
+      pdf.save('Fire_Safety_Certificate.pdf');
+    } catch (error) {
+      console.error("Error generating PDF", error);
+      alert("Sorry, there was an error creating the PDF.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -79,7 +95,9 @@ export const Certificate: React.FC = () => {
           className="w-full p-3 border-2 border-navy rounded-lg text-xl"
           placeholder="Your Name"
         />
-        <Button onClick={generateCertificate} disabled={!name}>Download Certificate</Button>
+        <Button onClick={generateCertificate} disabled={!name || isGenerating}>
+          {isGenerating ? 'Generating PDF...' : 'Download PDF Certificate'}
+        </Button>
         <canvas ref={canvasRef} width={1200} height={850} style={{ display: 'none' }} />
       </div>
     </div>
